@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name:  {{ .Values.restoreJob.configMapName }}
+data:
+  {{ .Values.restoreJob.restoreScriptName }}: |
+    {{- include "restore-script" . | indent 4 }}

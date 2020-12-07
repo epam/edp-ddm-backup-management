@@ -1,0 +1,12 @@
+
+missingFileHandler: Warn
+
+releases:
+ - name: velero
+   namespace: velero
+   chart: ./
+   wait: true
+   values:
+    - "values.yaml"
+    - "values.gotmpl"
+

@@ -1,0 +1,9 @@
+#Helm values
+cronJob:
+  name: control-plane-backup
+  configMapName: backup-control-plane-script
+  backupScriptName: backup-control-plane.sh
+restoreJob:
+  name: control-plane-restore
+  configMapName: restore-control-plane
+  restoreScriptName: restore-control-plane.sh

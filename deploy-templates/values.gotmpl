@@ -1,0 +1,82 @@
+{{ $cloudProvider := "" | regexReplaceAll "'" ("" | regexReplaceAll  "MachineProviderConfig" (exec "oc" (list "get" "machine" "-n" "openshift-machine-api" "-l" "machine.openshift.io/cluster-api-machine-role=master" "--no-headers" "-o" "jsonpath='{.items[0].spec.providerSpec.value.kind}'"))) }}
+{{ $cloudRegion := "" | regexReplaceAll "'" (exec "oc" (list "get" "machine" "-n" "openshift-machine-api" "-l" "machine.openshift.io/cluster-api-machine-role=master" "--no-headers" "-o" "jsonpath='{.items[0].metadata.labels.machine\\.openshift\\.io/region}'")) }}
+{{ $minioAwsAccessKeyId := "" | regexReplaceAll "'" ( exec "oc" (list "get" "secret" "-n" "control-plane" "backup-credentials" "--no-headers" "-o" "jsonpath='{.data.backup-s3-like-storage-access-key-id}'")) | b64dec }}
+{{ $minioEndpoint := "" | regexReplaceAll "'" ( exec "oc" (list "get" "secret" "-n" "control-plane" "backup-credentials" "--no-headers" "-o" "jsonpath='{.data.backup-s3-like-storage-url}'")) | b64dec }}
+{{ $minioAwsSecretAccessKey := "" | regexReplaceAll "'" ( exec "oc" (list "get" "secret" "-n" "control-plane" "backup-credentials" "--no-headers" "-o" "jsonpath='{.data.backup-s3-like-storage-secret-access-key}'")) | b64dec }}
+{{ $jenkinsAgentImage := "" | regexReplaceAll "'" ("" | regexReplaceAll  "\n" (exec "oc" (list "get" "pods" "--selector" "jenkins/label=gitops" "-o" "jsonpath='{.items[0].spec.containers[*].image}'"))) }}
+
+
+velero:
+ deployRestic: true
+ restic:
+   privileged: true
+   resources:
+     limits:
+       cpu: 1500m
+     requests:
+       cpu: 500m
+       memory: 512Mi
+   tolerations:
+     - operator: Exists
+
+ initContainers:
+    - name: velero-plugin-for-aws
+      image: velero/velero-plugin-for-aws:v1.1.0
+      imagePullPolicy: IfNotPresent
+      volumeMounts:
+        - mountPath: /target
+          name: plugins
+    - name: velero-plugin-for-csi
+      image: velero/velero-plugin-for-csi:v0.1.2
+      imagePullPolicy: IfNotPresent
+      volumeMounts:
+        - mountPath: /target
+          name: plugins
+    - name: openshift-velero-plugin
+      image: quay.io/konveyor/openshift-velero-plugin:release-1.4.0
+      imagePullPolicy: IfNotPresent
+      volumeMounts:
+        - mountPath: /target
+          name: plugins
+
+ features: EnableCSI
+
+ resources:
+   limits:
+     cpu: "1"
+     memory: 1Gi
+   requests:
+     cpu: 500m
+     memory: 512Mi
+
+ configuration:
+   job:
+     image: {{ $jenkinsAgentImage }}
+   provider: aws
+   volumeSnapshotLocation:
+     config:
+        region: {{ if eq $cloudProvider "AWS" }}{{ $cloudRegion }}{{ else }}"default"{{ end }}
+        {{ if eq $cloudProvider "AWS" }}profile: "cloud-profile"{{ end }}
+   backupStorageLocation:
+     name: default
+    # bucket is the name of the bucket to store backups in. Required.
+     bucket: {{ requiredEnv "backupBucket" }}     # enter name bucket for backup
+     prefix: "openshift-backups"
+     config:
+       region: {{ if eq $cloudProvider "AWS" }}{{ $cloudRegion }}{{ else }}"default"{{ end }}
+       s3ForcePathStyle: "true"
+       s3Url: {{ $minioEndpoint }}
+       publicUrl: {{ $minioEndpoint }}
+
+ # credentials for connect to bucket, enter below aws_access_key_id and aws_secret_access_key
+ credentials:
+   name: cloud-credentials
+   secretContents:
+     cloud: |
+       [default]
+       aws_access_key_id={{ $minioAwsAccessKeyId }}
+       aws_secret_access_key={{ $minioAwsSecretAccessKey }}
+       {{ if eq $cloudProvider "AWS" }}[cloud-profile]
+       aws_access_key_id={{ "" | regexReplaceAll "'" ( exec "oc" (list "get" "secret" "-n" "kube-system" "aws-creds" "--no-headers" "-o" "jsonpath='{.data.aws_access_key_id}'")) | b64dec }}
+       aws_secret_access_key={{ "" | regexReplaceAll "'" ( exec "oc" (list "get" "secret" "-n" "kube-system" "aws-creds" "--no-headers" "-o" "jsonpath='{.data.aws_secret_access_key}'")) | b64dec }}
+       {{ end }}
