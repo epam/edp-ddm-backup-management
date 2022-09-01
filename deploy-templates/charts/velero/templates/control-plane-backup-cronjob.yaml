@@ -1,0 +1,30 @@
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: {{ .Values.cronJob.name }}
+spec:
+  schedule: "30 9 * * MON-FRI"
+  jobTemplate:
+    spec:
+     template:
+      spec:
+        containers:
+        - name: {{ .Values.cronJob.name }}
+          image: {{ include "velero.job.image" . }}
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - /tmp/backup/{{ .Values.cronJob.backupScriptName }}
+          volumeMounts:
+            - mountPath: /tmp/backup/{{ .Values.cronJob.backupScriptName }}
+              subPath: {{ .Values.cronJob.backupScriptName }}
+              name: backup
+        volumes:
+        - name: backup
+          configMap:
+            name: {{ .Values.cronJob.configMapName }}
+            defaultMode: 0777
+        restartPolicy: OnFailure
+        serviceAccountName: {{ .Values.cronJob.name }}
+        serviceAccount: {{ .Values.cronJob.name }}

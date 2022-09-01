@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.cronJob.configMapName }}
+data:
+  {{ .Values.cronJob.backupScriptName }}: |
+     {{- include "backup-script" . | indent 4 }}
