@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.restoreJob.name }}-job-config
+data:
+  restore-job.yaml: |
+    {{- include "restore-job-template" . | indent 4 }}
