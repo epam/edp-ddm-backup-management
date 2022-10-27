@@ -117,9 +117,13 @@ Create the volume snapshot location provider
 {{- end -}}
 
 {{/*
-Helm hooks for Helm v2 CRDs 
+Kubernetes version
+Built-in object .Capabilities.KubeVersion.Minor can provide non-number output
+For examples:
+- on GKE it returns "18+" instead of "18"
+- on EKS it returns "20+" instead of "20"
 */}}
-{{- define "velero.helmhooks.crds" -}}
-{{ print "\"helm.sh/hook\": pre-install,pre-upgrade" | indent 4 }}
-{{ print "\"helm.sh/hook-delete-policy\": \"before-hook-creation\"" | indent 4 }}
+{{- define "chart.KubernetesVersion" -}}
+{{- $minorVersion := .Capabilities.KubeVersion.Minor | regexFind "[0-9]+" -}}
+{{- printf "%s.%s" .Capabilities.KubeVersion.Major $minorVersion -}}
 {{- end -}}
