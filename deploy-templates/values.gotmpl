@@ -21,19 +21,19 @@ velero:
 
  initContainers:
     - name: velero-plugin-for-aws
-      image: velero/velero-plugin-for-aws:v1.1.0
+      image: velero/velero-plugin-for-aws:v1.5.1
       imagePullPolicy: IfNotPresent
       volumeMounts:
         - mountPath: /target
           name: plugins
     - name: velero-plugin-for-csi
-      image: velero/velero-plugin-for-csi:v0.1.2
+      image: velero/velero-plugin-for-csi:v0.3.1
       imagePullPolicy: IfNotPresent
       volumeMounts:
         - mountPath: /target
           name: plugins
     - name: openshift-velero-plugin
-      image: quay.io/konveyor/openshift-velero-plugin:release-1.4.0
+      image: quay.io/konveyor/openshift-velero-plugin:release-1.7.5
       imagePullPolicy: IfNotPresent
       volumeMounts:
         - mountPath: /target
