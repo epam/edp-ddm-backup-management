@@ -1,0 +1,87 @@
+{{- if eq .Values.registryBackup.obc.action "replication" -}}
+{{ range $index, $bucket := (lookup "objectbucket.io/v1alpha1" "ObjectBucketClaim" $.Values.configuration.registryName "").items }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "bucket-replication.fullname" $ }}-{{ $bucket.metadata.name}}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "bucket-replication.labels" $ | nindent 4 }}
+    obc-bucket-name: {{ $bucket.metadata.name }}
+spec:
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 30
+  schedule: {{ $.Values.registryBackup.obc.cronExpression | default "30 19 * * *" | quote }}
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          name: {{ include "bucket-replication.fullname" $ }}
+          labels:
+            {{- include "bucket-replication.labels" $ | nindent 12 }}
+            obc-bucket-name: {{ $bucket.metadata.name }}
+        spec:
+          nodeSelector:
+            node: {{ $.Values.configuration.registryName }}
+          tolerations:
+            - key: node/{{ $.Values.configuration.registryName }}
+              operator: Exists
+        {{- if or (eq $bucket.metadata.name "datafactory-ceph-bucket") (eq $bucket.metadata.name "lowcode-form-data-storage") (eq $bucket.metadata.name "file-ceph-bucket")}}
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: node
+                        operator: In
+                        values:
+                          - {{ $.Values.configuration.registryName }}
+            podAntiAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - labelSelector:
+                    matchExpressions:
+                      - key: app.kubernetes.io/name
+                        operator: In
+                        values:
+                          - {{ include "bucket-replication.name" $ }}
+                  topologyKey: kubernetes.io/hostname
+          {{- end }}
+          serviceAccountName: {{ include "bucket-replication.serviceAccountName" $ }}
+          containers:
+            - name: {{ include "bucket-replication.fullname" $ }}
+              image: {{ include "bucket-replication.image" $ }}
+              env:
+                - name: BACKUP_BUCKET
+                  value: {{ include "bucket-replication.backupBucket" $ | b64dec | indent 3 }}
+                - name: REGISTRY_NAMESPACE
+                  value: {{ $.Values.configuration.registryName }}
+                - name: OBJECT_BUCKET_CLAIM
+                  value: {{ $bucket.metadata.name }}
+                - name: MAX_AGE
+                  value: {{ $.Values.registryBackup.obc.maxAge | quote }}
+                {{- if or  (eq $.Values.registryBackup.obc.type "default") ( $.Values.registryBackup.obc.endpoint) }}
+                - name: S3_ENDPOINT
+                  value: {{- include "bucket-replication.minioEndpoint"  $ | b64dec | indent 3}}
+                {{- end }}
+              command: [ "/bin/sh" ]
+              args:
+                - '-c'
+                - /opt/scripts/bucket-replication.sh
+              volumeMounts:
+                - name: {{ include "bucket-replication.fullname" $ }}
+                  mountPath: /opt/scripts
+              envFrom:
+                - secretRef:
+                    name: {{ include "bucket-replication.secretName" $ }}
+          restartPolicy: Never
+          tolerations:
+          - key: node/{{ $.Values.configuration.registryName }}
+            operator: Exists
+          volumes:
+            - name: {{ include "bucket-replication.fullname" $ }}
+              configMap:
+                name: {{ include "bucket-replication.fullname" $ }}
+                defaultMode: 0755
+{{- end }}
+{{- end }}
