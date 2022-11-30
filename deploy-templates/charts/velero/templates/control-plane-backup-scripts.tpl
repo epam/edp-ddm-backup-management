@@ -1,7 +1,7 @@
 {{- define "backup-script" }}
 #!/usr/bin/env bash
 backup_secret_name="backup-credentials"
-backup_ttl="120h"
+backup_ttl=$(({{ .Values.backup.controlPlane.expires_in_days | default 5 }}*24))
 edp_project="control-plane"
 declare -a openshift_resources=("service" "gerrit" "jenkins" "codebase")
 
@@ -27,7 +27,7 @@ acl = bucket-owner-full-control" > ~/.config/rclone/rclone.conf
 
 
 echo "Backup $edp_project namespace with velero"
-velero backup create ${backup_name} --include-namespaces ${edp_project} --ttl ${backup_ttl} --wait
+velero backup create ${backup_name} --include-namespaces ${edp_project} --ttl ${backup_ttl}h --wait
 
 echo "Backup Openshift resources_kind to Minio"
 mkdir -p /tmp/openshift-resources
