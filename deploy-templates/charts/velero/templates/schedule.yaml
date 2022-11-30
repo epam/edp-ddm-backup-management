@@ -1,33 +1,29 @@
-{{- range $scheduleName, $schedule := .Values.schedules }}
-{{- if (not $schedule.disabled) }}
+{{- range $component, $data := .Values.backup }}
+{{- if ne $component "controlPlane" }}
 apiVersion: velero.io/v1
 kind: Schedule
 metadata:
-  name: {{ include "velero.fullname" $ }}-{{ $scheduleName }}
+  name: {{ include "velero.fullname" $ }}-{{ $component | lower }}
   namespace: {{ $.Release.Namespace }}
   annotations:
-  {{- if $schedule.annotations }}
-    {{- toYaml $schedule.annotations | nindent 4 }}
-  {{- end }}
     "helm.sh/hook": post-install,post-upgrade,post-rollback
     "helm.sh/hook-delete-policy": before-hook-creation
   labels:
     app.kubernetes.io/name: {{ include "velero.name" $ }}
     app.kubernetes.io/instance: {{ $.Release.Name }}
     app.kubernetes.io/managed-by: {{ $.Release.Service }}
-    helm.sh/chart: {{ include "velero.chart" $ }}
-    {{- if $schedule.labels }}
-      {{- toYaml $schedule.labels | nindent 4 }}
-    {{- end }}
 spec:
-{{- if $schedule.useOwnerReferencesInBackup }}
-  useOwnerReferencesInBackup: {{ $schedule.useOwnerReferencesInBackup }}
-{{- end }}
-  schedule: {{ $schedule.schedule | quote }}
-{{- with $schedule.template }}
+  useOwnerReferencesInBackup: false
+  schedule: {{ $data.schedule | squote }}
   template:
-    {{- toYaml . | nindent 4 }}
-{{- end }}
+    csiSnapshotTimeout: 0s
+    includedNamespaces:
+      {{- if eq $component "monitoring" }}
+      - {{ print "grafana-" $component | quote -}}
+      {{ else }}
+      - {{ kebabcase $component | quote -}}
+      {{ end }}
+    ttl: {{ print (mul $data.expires_in_days 24) "h" }}
 ---
 {{- end }}
 {{- end }}

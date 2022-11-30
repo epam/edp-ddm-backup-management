@@ -3,7 +3,7 @@ kind: CronJob
 metadata:
   name: {{ .Values.cronJob.name }}
 spec:
-  schedule: "30 9 * * MON-FRI"
+  schedule: {{ .Values.backup.controlPlane.schedule | default "30 9 * * MON-FRI" | squote}}
   jobTemplate:
     spec:
      template:
