@@ -117,7 +117,7 @@ time velero restore create "${backup_name}-${execution_time}-init" --from-backup
 
 for pvc in $(oc -n ${registry_name} get pvc -l strimzi.io/name=kafka-cluster-kafka --no-headers -o custom-columns=NAME:.metadata.name); do
   current_size=$(oc -n ${registry_name} get pvc ${pvc} -o jsonpath='{.spec.resources.requests.storage}' | tr -dc '0-9')
-  new_size=$(( ${current_size} + 5))
+  new_size=$(( ${current_size} + 20))
   echo "Expanding ${pvc} from ${current_size}Gi to ${new_size}Gi"
   oc -n ${registry_name} patch pvc ${pvc} --type=merge -p="{\"spec\":{\"resources\":{\"requests\":{\"storage\":\"${new_size}Gi\"}}}}"
 done
