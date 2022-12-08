@@ -15,8 +15,12 @@ rules:
     - "gerrits"
     - "jenkins"
     - "services"
+    - "gerritmergerequests"
+    - "customresourcedefinitions"
     verbs:
     - "create"
     - "get"
     - "list"
     - "watch"
+    - "patch"
+    - "update"

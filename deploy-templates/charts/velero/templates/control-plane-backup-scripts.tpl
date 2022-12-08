@@ -3,7 +3,7 @@
 backup_secret_name="backup-credentials"
 backup_ttl=$(({{ .Values.backup.controlPlane.expires_in_days | default 5 }}*24))
 edp_project="control-plane"
-declare -a openshift_resources=("service" "gerrit" "jenkins" "codebase")
+declare -a openshift_resources=("service" "gerrit" "jenkins" "codebase" "gerritmergerequest")
 
 execution_time=$(date '+%Y-%m-%d-%H-%M-%S')
 backup_name="${edp_project}-${execution_time}"
@@ -36,7 +36,11 @@ do
     for name in $(oc get ${resources_kind} -n ${edp_project} --no-headers -o custom-columns="NAME:.metadata.name" | sed 'N;s/\n/ /g')
     do
       echo ${resources_kind}/${name}
-      oc get ${resources_kind}/${name} -n ${edp_project} -o yaml > /tmp/openshift-resources/${resources_kind}-${name}.yaml
+      if [[ $resources_kind =~ "gerritmergerequest" ]]; then
+        oc get ${resources_kind}/${name} -n ${edp_project} -o json | jq 'del(.metadata.resourceVersion,.metadata.uid,.metadata.selfLink,.metadata.managedFields,.metadata.creationTimestamp,.metadata.annotations,.metadata.generation,.metadata.ownerReferences)' > /tmp/openshift-resources/${resources_kind}-${name}.json
+      else
+        oc get ${resources_kind}/${name} -n ${edp_project} -o yaml > /tmp/openshift-resources/${resources_kind}-${name}.yaml
+      fi
     done
 done
 

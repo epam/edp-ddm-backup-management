@@ -11,6 +11,8 @@ backup_name="$BACKUP_NAME"
 backup_secret_name="backup-credentials"
 backup_ttl="120h"
 edp_project="control-plane"
+resource_type="customresourcedefinition"
+resource_name="gerritmergerequests.v2.edp.epam.com"
 
 
 echo "Restoring persistent resources from backup from Velero"
@@ -37,7 +39,9 @@ acl = bucket-owner-full-control" > ~/.config/rclone/rclone.conf
 
 mkdir -p /tmp/openshift_resources
 rclone copy minio:/${minio_backup_bucket_name}/backups/${backup_name}/openshift-resources /tmp/openshift_resources
+oc patch ${resource_type} ${resource_name} --type='json' -p='[{"op":"replace","path":"/spec/versions/0/subresources","value":null}]'
 for op_object in $(ls /tmp/openshift_resources); do oc apply -f /tmp/openshift_resources/${op_object};done
+oc patch ${resource_type} ${resource_name} --type='json' -p='[{"op":"add","path":"/spec/versions/0/subresources","value":{"status":{}}}]'
 rm -rf /tmp/openshift_resources
 
 echo "Restore Jenkins"
