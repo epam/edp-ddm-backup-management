@@ -498,3 +498,19 @@ configMaps: {}
 ##
 ## End of additional Velero resource settings.
 ##
+##
+## Schedule default settings
+##
+backup:
+  controlPlaneNexus:
+    schedule: "50 9 * * *"
+    expiresInDays: 5
+  controlPlane:
+    schedule: "30 9 * * *"
+    expiresInDays: 5
+  userManagement:
+    schedule: "15 9 * * *"
+    expiresInDays: 5
+  monitoring:
+    schedule: "30 10 * * *"
+    expiresInDays: 5
