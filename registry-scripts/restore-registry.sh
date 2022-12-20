@@ -157,6 +157,10 @@ oc apply -f ${resource_folder}/control_plane_jenkinsauthrolemapping.yaml
 echo "Restore group for registry users"
 oc delete pods -n user-management -l name=keycloak-operator
 
+echo "Restore secret for SSO working with Openshift realm"
+oc delete secret -n "${registry_name}" "keycloak-client.${registry_name}-admin.secret"
+velero create restore --from-backup "${backup_name}" --include-resources secrets
+oc delete pods -n "${registry_name}" -l name=keycloak-operator
 echo "Waiting all pods restorting"
 
 sleep 200
