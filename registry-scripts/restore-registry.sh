@@ -161,6 +161,8 @@ echo "Restore secret for SSO working with Openshift realm"
 oc delete secret -n "${registry_name}" "keycloak-client.${registry_name}-admin.secret"
 velero create restore --from-backup "${backup_name}" --include-resources secrets
 oc delete pods -n "${registry_name}" -l name=keycloak-operator
+echo "Force delete DSO pod"
+oc delete pods -n "${registry_name}" -l app=digital-signature-ops --ignore-not-found
 echo "Waiting all pods restorting"
 
 sleep 200
