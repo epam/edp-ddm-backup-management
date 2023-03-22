@@ -44,6 +44,6 @@ do
     done
 done
 
-rclone copy /tmp/openshift-resources minio:/${minio_backup_bucket_name}/backups/${backup_name}/openshift-resources
+rclone copy /tmp/openshift-resources minio:/${minio_backup_bucket_name}/openshift-backups/backups/${backup_name}/openshift-resources
 rm -rf /tmp/openshift-resources
 {{- end }}
