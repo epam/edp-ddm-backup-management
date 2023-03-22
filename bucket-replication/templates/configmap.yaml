@@ -43,12 +43,38 @@ data:
 {{- if eq .Values.registryBackup.obc.action "replication" }}
     rclone_command="rclone copy -P --no-traverse --metadata"
 
-    if [[ -z `rclone lsd ${BACKUP_BUCKET}:${BACKUP_BUCKET}/obc-backups/${REGISTRY_NAMESPACE}/${OBJECT_BUCKET_CLAIM}` ]]; then
-       echo "First run, folders empty"
+    if [[ -z $(rclone lsd ${BACKUP_BUCKET}:${BACKUP_BUCKET}/obc-backups/${REGISTRY_NAMESPACE} | grep ${OBJECT_BUCKET_CLAIM}) ]]; then
+       echo "[INFO] Destination folder empty, copy full bucket to destination"
     else
+       echo "[INFO] Destination folder exists, copy bucket data for ${MAX_AGE}"
        rclone_command="${rclone_command} --max-age ${MAX_AGE}"
     fi
-    ${rclone_command} rook:${bucket} ${BACKUP_BUCKET}:/${BACKUP_BUCKET}/obc-backups/${REGISTRY_NAMESPACE}/${OBJECT_BUCKET_CLAIM}/
+
+    function replication() {
+      set +o pipefail
+      $rclone_command rook:${bucket} ${BACKUP_BUCKET}:/${BACKUP_BUCKET}/obc-backups/${REGISTRY_NAMESPACE}/${OBJECT_BUCKET_CLAIM}/ -v  > /tmp/rcloneout 2> /tmp/rcloneerror
+      return 0
+    }
+
+    function error_response(){
+        return 1
+    }
+
+    replication
+
+    if grep -q 'failed to open source object: NoSuchKey' /tmp/rcloneerror;then
+      echo "[WARN] False positive error with NoSuchKey. Ignore"
+    elif  [ -s /tmp/rcloneout ];then
+      echo "[INFO] Replication completed with no errors."
+    else
+      if [ ! -z ${DEBUG} ]; then
+        echo "[ERROR][DEBUG]Debug flag set to true"
+        cat /tmp/rcloneerror
+      else
+        echo "[ERROR]Please run job in debug mode. Add to enviromnet variable DEBUG with value "true" to return logs to stout"
+      fi
+      error_response
+    fi
 {{- else }}
     rclone -M -v sync ${BACKUP_BUCKET}:/${BACKUP_BUCKET}/obc-backups/${REGISTRY_NAMESPACE}/${OBJECT_BUCKET_CLAIM} rook:${bucket}
 {{- end }}
