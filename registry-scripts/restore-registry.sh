@@ -22,7 +22,12 @@ declare -a animals=( "statefulset,app.kubernetes.io/name=vault,vault"
                      "statefulset,app=redis-viewer,redis-viewer"
                      "deployment,app.kubernetes.io/instance=geo-server,geo-server"
                      )
-
+restoreObjectFromMinio() {
+      for resource in "${1}"/*.yaml
+      do
+        oc apply -f "${resource}"
+      done
+}
 restic_wait () {
    while [[ $(oc get pods "${1}" -o 'jsonpath={..status.conditions[?(@.type=="Initialized")].status}' -n "${2}") != "True" ]]; do
       sleep 10
@@ -101,10 +106,19 @@ rclone copy "minio:${minio_bucket_name}/openshift-backups/backups/${backup_name}
 
 for folder in "${openshift_resources[@]}"
 do
-    for resource in "${resource_folder}/${folder}"/*.yaml
-    do
-      oc apply -f "${resource}"
-    done
+    if [ "${folder}" = "gerrit" ] || [ "${folder}" = "jenkins" ];then
+      if [ "${folder}" = "gerrit" ];then
+        resource_crd="${folder}s.v2.edp.epam.com"
+      else
+        resource_crd="${folder}.v2.edp.epam.com"
+      fi
+      oc patch customresourcedefinition "${resource_crd}" --type='json' -p='[{"op":"replace","path":"/spec/versions/0/subresources","value":null}]'
+      restoreObjectFromMinio "${resource_folder}/${folder}"
+      oc patch customresourcedefinition "${resource_crd}" --type='json' -p='[{"op":"add","path":"/spec/versions/0/subresources","value":{"status":{}}}]'
+    else
+      restoreObjectFromMinio "${resource_folder}/${folder}"
+    fi
+
 done
 echo "Delete annotation from services"
 for service in $(oc get service -n "${registry_name}" --no-headers -o custom-columns=":metadata.name")
