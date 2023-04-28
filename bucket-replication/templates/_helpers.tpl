@@ -81,40 +81,39 @@ Create the name of backup-secret
 {{- end -}}
 
 {{- define "bucket-replication.secretData" -}}
-{{- if  eq .Values.registryBackup.obc.type "default" }}
-{{- $backupSecreet := (lookup "v1" "Secret" .Values.configuration.defaultCredentialsSecretNamespace  .Values.configuration.defaultCredentialsSecretName) }}
-{{- $secretData := (get $backupSecreet "data") }}
+{{- if and .Values.global.registryBackup.obc.bucketSecretAccessKey .Values.global.registryBackup.obc.bucketAccessKeyId }}
+{{- $customAccessKey := .Values.global.registryBackup.obc.bucketSecretAccessKey | b64enc }}
+{{- $customSecretAccessKey := .Values.global.registryBackup.obc.bucketAccessKeyId | b64enc }}
+{{ printf "%s: %s\n" "AWS_ACCESS_KEY_ID" $customAccessKey }}
+{{ printf "%s: %s\n" "AWS_SECRET_ACCESS_KEY" $customSecretAccessKey }}
+{{- else}}
+{{- $backupSecret := (lookup "v1" "Secret" .Values.configuration.defaultCredentialsSecretNamespace  .Values.configuration.defaultCredentialsSecretName) }}
+{{- $secretData := (get $backupSecret "data") }}
 {{- $accessKeyId := (get $secretData "backup-s3-like-storage-access-key-id") | quote | default dict }}
 {{- $secretAccessKey := (get $secretData "backup-s3-like-storage-secret-access-key") | quote | default dict }}
 {{ printf "%s: %s\n" "AWS_ACCESS_KEY_ID" $accessKeyId }}
 {{ printf "%s: %s\n" "AWS_SECRET_ACCESS_KEY" $secretAccessKey }}
-{{- else}}
-{{- $customAccessKey := .Values.registryBackup.obc.bucketSecretAccessKey | b64enc }}
-{{- $customSecretAccessKey := .Values.registryBackup.obc.bucketAccessKeyId | b64enc }}
-{{ printf "%s: %s\n" "AWS_ACCESS_KEY_ID" $customAccessKey }}
-{{ printf "%s: %s\n" "AWS_SECRET_ACCESS_KEY" $customSecretAccessKey }}
 {{- end }}
 {{- end }}
 
 {{- define "bucket-replication.backupBucket" -}}
-{{- if  eq .Values.registryBackup.obc.type "default" }}
-{{- $backupSecreet := (lookup "v1" "Secret" .Values.configuration.defaultCredentialsSecretNamespace  .Values.configuration.defaultCredentialsSecretName) }}
-{{- $secretData := (get $backupSecreet "data") }}
+{{- if  .Values.global.registryBackup.obc.backupBucket }}
+{{- .Values.global.registryBackup.obc.backupBucket }}
+{{- else }}
+{{- $backupSecret := (lookup "v1" "Secret" .Values.configuration.defaultCredentialsSecretNamespace  .Values.configuration.defaultCredentialsSecretName) }}
+{{- $secretData := (get $backupSecret "data") }}
 {{- $backupBucket := (get $secretData "backup-s3-like-storage-location") | default dict }}
 {{ printf "%s" $backupBucket }}
-{{- else }}
-{{ .Values.registryBackup.obc.backupBucket }}
 {{- end }}
 {{- end }}
 
 {{- define "bucket-replication.minioEndpoint" -}}
-{{- if  eq .Values.registryBackup.obc.type "default" }}
-{{- $backupSecreet := (lookup "v1" "Secret" .Values.configuration.defaultCredentialsSecretNamespace  .Values.configuration.defaultCredentialsSecretName) }}
-{{- $secretData := (get $backupSecreet "data") }}
+{{- if .Values.global.registryBackup.obc.endpoint }}
+{{- .Values.global.registryBackup.obc.endpoint }}
+{{- else }}
+{{- $backupSecret := (lookup "v1" "Secret" .Values.configuration.defaultCredentialsSecretNamespace  .Values.configuration.defaultCredentialsSecretName) }}
+{{- $secretData := (get $backupSecret "data") }}
 {{- $minioEndpoint := (get $secretData "backup-s3-like-storage-url") | default dict }}
 {{ printf "%s" $minioEndpoint }}
-{{- else if .Values.registryBackup.obc.endpoint }}
-{{ .Values.registryBackup.obc.endpoint }}
 {{- end }}
 {{- end }}
-
