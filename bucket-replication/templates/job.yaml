@@ -23,7 +23,7 @@ spec:
           image: {{ include "bucket-replication.image" $ }}
           env:
             - name: BACKUP_BUCKET
-              value: {{ include "bucket-replication.backupBucket" $ | b64dec | indent 3 }}
+              value: {{ include "bucket-replication.backupBucket" $ }}
             - name: REGISTRY_NAMESPACE
               value: {{ $.Values.configuration.registryName }}
             - name: OBJECT_BUCKET_CLAIM
@@ -32,10 +32,8 @@ spec:
               value: {{ $.Values.configuration.forceSync | quote }}
             - name: MAX_AGE
               value: {{ $.Values.registryBackup.obc.maxAge | quote }}
-            {{- if or  (eq $.Values.registryBackup.obc.type "default") ( $.Values.registryBackup.obc.endpoint) }}
             - name: S3_ENDPOINT
-              value: {{- include "bucket-replication.minioEndpoint"  $ | b64dec | indent 3}}
-            {{- end }}
+              value: {{- include "bucket-replication.minioEndpoint"  $ }}
           command: [ "/bin/sh" ]
           args:
             - '-c'
