@@ -103,7 +103,7 @@ Create the name of backup-secret
 {{- $backupSecret := (lookup "v1" "Secret" .Values.configuration.defaultCredentialsSecretNamespace  .Values.configuration.defaultCredentialsSecretName) }}
 {{- $secretData := (get $backupSecret "data") }}
 {{- $backupBucket := (get $secretData "backup-s3-like-storage-location") | default dict }}
-{{ printf "%s" $backupBucket }}
+{{- $backupBucket | b64dec | indent 3 }}
 {{- end }}
 {{- end }}
 
@@ -114,6 +114,6 @@ Create the name of backup-secret
 {{- $backupSecret := (lookup "v1" "Secret" .Values.configuration.defaultCredentialsSecretNamespace  .Values.configuration.defaultCredentialsSecretName) }}
 {{- $secretData := (get $backupSecret "data") }}
 {{- $minioEndpoint := (get $secretData "backup-s3-like-storage-url") | default dict }}
-{{ printf "%s" $minioEndpoint }}
+{{- $minioEndpoint | b64dec | indent 3 }}
 {{- end }}
 {{- end }}
