@@ -8,12 +8,13 @@ configuration:
   jenkinsAgentImageCMName: "jenkins-agent-image"
   forceSync: false
 
-registryBackup:
-  obc:
-    type: default
-    # http endpoint
-    # path to Vault secret
-    # backupBucket
+global:
+  registryBackup:
+    obc:
+      type: default
+      # http endpoint
+      # path to Vault secret
+      # backupBucket
 imagePullSecrets: []
 
 serviceAccount:
