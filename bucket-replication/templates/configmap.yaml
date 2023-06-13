@@ -18,12 +18,8 @@ data:
     echo "
     ["${BACKUP_BUCKET}"]
     type = s3
-    {{- if or (eq .Values.registryBackup.obc.type "default") (.Values.registryBackup.obc.endpoint)}}
     provider = Other
     endpoint = ${S3_ENDPOINT}
-    {{- else }}
-    provider = AWS
-    {{- end }}
     env_auth = true
     region = eu-central-1
     acl = private
