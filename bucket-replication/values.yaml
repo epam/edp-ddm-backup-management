@@ -15,6 +15,7 @@ global:
       # http endpoint
       # path to Vault secret
       # backupBucket
+      suspend: false
 imagePullSecrets: []
 
 serviceAccount:
