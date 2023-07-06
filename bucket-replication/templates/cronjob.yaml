@@ -10,6 +10,7 @@ metadata:
     {{- include "bucket-replication.labels" $ | nindent 4 }}
     obc-bucket-name: {{ $bucket.metadata.name }}
 spec:
+  suspend: {{ $.Values.global.registryBackup.obc.suspend }}
   concurrencyPolicy: Forbid
   startingDeadlineSeconds: 30
   schedule: {{ $.Values.global.registryBackup.obc.cronExpression | default "30 19 * * *" | quote }}
