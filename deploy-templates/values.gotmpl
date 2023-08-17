@@ -7,16 +7,23 @@
 
 
 velero:
- deployRestic: true
- restic:
-   privileged: true
-   resources:
-     limits:
-       cpu: 1500m
-     requests:
-       cpu: 500m
-       memory: 512Mi
-   tolerations:
+  resources:
+    limits:
+      cpu: 2
+      memory: 4Gi
+    requests:
+      cpu: 500m
+      memory: 128Mi
+  deployRestic: true
+  restic:
+    privileged: true
+    resources:
+      limits:
+        cpu: 1500m
+      requests:
+        cpu: 500m
+        memory: 512Mi
+    tolerations:
      - operator: Exists
 
  initContainers:
