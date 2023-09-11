@@ -14,7 +14,9 @@ velero:
     requests:
       cpu: 500m
       memory: 128Mi
+
   deployRestic: true
+
   restic:
     privileged: true
     resources:
@@ -24,9 +26,9 @@ velero:
         cpu: 500m
         memory: 512Mi
     tolerations:
-     - operator: Exists
+      - operator: Exists
 
- initContainers:
+  initContainers:
     - name: velero-plugin-for-aws
       image: velero/velero-plugin-for-aws:v1.5.1
       imagePullPolicy: IfNotPresent
@@ -46,44 +48,36 @@ velero:
         - mountPath: /target
           name: plugins
 
- features: EnableCSI
+  features: EnableCSI
 
- resources:
-   limits:
-     cpu: "1"
-     memory: 1Gi
-   requests:
-     cpu: 500m
-     memory: 512Mi
-
- configuration:
-   job:
-     image: {{ $jenkinsAgentImage }}
-   provider: aws
-   volumeSnapshotLocation:
-     config:
+  configuration:
+    job:
+      image: {{ $jenkinsAgentImage }}
+    provider: aws
+    volumeSnapshotLocation:
+      config:
         region: {{ if eq $cloudProvider "AWS" }}{{ $cloudRegion }}{{ else }}"default"{{ end }}
         {{ if eq $cloudProvider "AWS" }}profile: "cloud-profile"{{ end }}
-   backupStorageLocation:
-     name: default
-    # bucket is the name of the bucket to store backups in. Required.
-     bucket: {{ requiredEnv "backupBucket" }}     # enter name bucket for backup
-     prefix: "openshift-backups"
-     config:
-       region: {{ if eq $cloudProvider "AWS" }}{{ $cloudRegion }}{{ else }}"default"{{ end }}
-       s3ForcePathStyle: "true"
-       s3Url: {{ $minioEndpoint }}
-       publicUrl: {{ $minioEndpoint }}
+    backupStorageLocation:
+      name: default
+      # bucket is the name of the bucket to store backups in. Required.
+      bucket: {{ requiredEnv "backupBucket" }}     # enter name bucket for backup
+      prefix: "openshift-backups"
+      config:
+        region: {{ if eq $cloudProvider "AWS" }}{{ $cloudRegion }}{{ else }}"default"{{ end }}
+        s3ForcePathStyle: "true"
+        s3Url: {{ $minioEndpoint }}
+        publicUrl: {{ $minioEndpoint }}
 
- # credentials for connect to bucket, enter below aws_access_key_id and aws_secret_access_key
- credentials:
-   name: cloud-credentials
-   secretContents:
-     cloud: |
-       [default]
-       aws_access_key_id={{ $minioAwsAccessKeyId }}
-       aws_secret_access_key={{ $minioAwsSecretAccessKey }}
-       {{ if eq $cloudProvider "AWS" }}[cloud-profile]
-       aws_access_key_id={{ "" | regexReplaceAll "'" ( exec "oc" (list "get" "secret" "-n" "kube-system" "aws-creds" "--no-headers" "-o" "jsonpath='{.data.aws_access_key_id}'")) | b64dec }}
-       aws_secret_access_key={{ "" | regexReplaceAll "'" ( exec "oc" (list "get" "secret" "-n" "kube-system" "aws-creds" "--no-headers" "-o" "jsonpath='{.data.aws_secret_access_key}'")) | b64dec }}
-       {{ end }}
+  # credentials for connect to bucket, enter below aws_access_key_id and aws_secret_access_key
+  credentials:
+    name: cloud-credentials
+    secretContents:
+      cloud: |
+        [default]
+        aws_access_key_id={{ $minioAwsAccessKeyId }}
+        aws_secret_access_key={{ $minioAwsSecretAccessKey }}
+        {{ if eq $cloudProvider "AWS" }}[cloud-profile]
+        aws_access_key_id={{ "" | regexReplaceAll "'" ( exec "oc" (list "get" "secret" "-n" "kube-system" "aws-creds" "--no-headers" "-o" "jsonpath='{.data.aws_access_key_id}'")) | b64dec }}
+        aws_secret_access_key={{ "" | regexReplaceAll "'" ( exec "oc" (list "get" "secret" "-n" "kube-system" "aws-creds" "--no-headers" "-o" "jsonpath='{.data.aws_secret_access_key}'")) | b64dec }}
+        {{ end }}
