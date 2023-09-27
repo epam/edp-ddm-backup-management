@@ -414,8 +414,8 @@ restic:
       cpu: 500m
       memory: 512Mi
     limits:
-      cpu: 1000m
-      memory: 1024Mi
+      cpu: 3
+      memory: 4Gi
 
   # Tolerations to use for the Restic daemonset. Optional.
   tolerations: []

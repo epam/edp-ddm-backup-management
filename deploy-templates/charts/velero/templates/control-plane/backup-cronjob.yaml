@@ -27,4 +27,3 @@ spec:
             defaultMode: 0777
         restartPolicy: OnFailure
         serviceAccountName: {{ .Values.cronJob.name }}
-        serviceAccount: {{ .Values.cronJob.name }}

@@ -5,8 +5,10 @@ edp_ns="$2"
 backup_name="$3"
 execution_time="$4"
 resource_folder="/tmp/openshift-resources"
-declare -a openshift_resources=("service" "gerrits" "jenkins")
+runtime_jenkins_access_folder="${resource_folder}/jenkins_access"
+KAFKA_DISK_SIZE_EXTENSION_SIZE=40
 
+declare -a openshift_resources=("service" "gerrits" "jenkins")
 declare -a animals=("statefulset,app.kubernetes.io/name=vault,vault"
   "deployment,app=nexus,nexus"
   "deployment,app=gerrit,gerrit"
@@ -16,12 +18,11 @@ declare -a animals=("statefulset,app.kubernetes.io/name=vault,vault"
   "statefulset,strimzi.io/name=kafka-cluster-kafka,kafka-cluster-kafka"
   "statefulset,strimzi.io/name=kafka-cluster-zookeeper,kafka-cluster-kafka-zookeeper"
   "statefulset,app.kubernetes.io/component=redis,redis"
-  "statefulset,app=postgresql-admin,postgresql-admin"
-  "statefulset,app=postgresql-viewer,postgresql-viewer"
   "statefulset,app=redis-admin,redash-redis-viewer"
   "statefulset,app=redis-viewer,redis-viewer"
   "deployment,app.kubernetes.io/instance=geo-server,geo-server"
 )
+
 restoreObjectFromMinio() {
   for resource in "${1}"/*.yaml; do
     oc apply -f "${resource}"
@@ -68,6 +69,10 @@ restore() {
       echo "Waiting for Restic pod in pod ${restic_pod_name}"
       restic_wait "${restic_pod_name}" "${4}"
       sleep 5
+      if [[ "${3}" == "app=jenkins" ]]; then
+        echo "Additional steps for restoring $3. Cause: Jenkins URL not changed after restoring in Openshift"
+        oc -n "${4}" cp registry-scripts/scripts/change_url.groovy "${restic_pod_name}:/var/lib/jenkins/init.groovy.d/change_url.groovy" -c jenkins
+      fi
       oc scale deployment -l ${3} -n "${4}" --replicas ${REPLICA_COUNT}
     fi
   fi
@@ -133,7 +138,7 @@ time velero restore create "${backup_name}-${execution_time}-init" --from-backup
 
 for pvc in $(oc -n ${registry_name} get pvc -l strimzi.io/name=kafka-cluster-kafka --no-headers -o custom-columns=NAME:.metadata.name); do
   current_size=$(oc -n ${registry_name} get pvc ${pvc} -o jsonpath='{.spec.resources.requests.storage}' | tr -dc '0-9')
-  new_size=$((${current_size} + 30))
+  new_size=$((${current_size} + KAFKA_DISK_SIZE_EXTENSION_SIZE))
   echo "Expanding ${pvc} from ${current_size}Gi to ${new_size}Gi"
   oc -n ${registry_name} patch pvc ${pvc} --type=merge -p="{\"spec\":{\"resources\":{\"requests\":{\"storage\":\"${new_size}Gi\"}}}}"
 done
@@ -153,9 +158,6 @@ echo "Start restoring all others resources"
 time velero restore create "${backup_name}-${execution_time}-resources" --from-backup "${backup_name}" --exclude-resources pods,routes,objectbucketclaims --wait
 echo "End restoring all others resources"
 
-echo "Restore IDP"
-secret=$(oc get secret -n ${registry_name} "keycloak-client.${registry_name}-admin.secret" -o jsonpath='{.data.clientSecret}' | base64 -d)
-oc patch -n ${registry_name} keycloakrealmidentityprovider openshift-smoke-reg --type=merge -p '{"spec":{"config":{"clientSecret":"'$secret'"}}}'
 
 echo "Restore JenkinsAuthorizationRoleMapping in registry namespace"
 oc delete jenkinsauthorizationrolemapping -n "${registry_name}" --all
@@ -165,9 +167,15 @@ for jauthrolemap in "${resource_folder}"/jenkinsauthorizationrolemapping/*.yaml;
 done
 
 echo "Restore JenkinsAuthorizationRoleMapping in ${edp_ns}"
-oc get jenkinsauthorizationrolemapping -n ${edp_ns} -o yaml >${resource_folder}/control_plane_jenkinsauthrolemapping.yaml
-oc delete -f ${resource_folder}/control_plane_jenkinsauthrolemapping.yaml
-oc apply -f ${resource_folder}/control_plane_jenkinsauthrolemapping.yaml
+rm -rf "${runtime_jenkins_access_folder}" && mkdir -p "${runtime_jenkins_access_folder}"
+pushd "${runtime_jenkins_access_folder}" || exit
+for resource in $(oc get jenkinsauthorizationrolemapping -n  ${edp_ns} -o custom-columns="NAME:.metadata.name" --no-headers | grep "${registry_name}");
+do
+  oc get jenkinsauthorizationrolemapping -n ${edp_ns} "${resource}" -o yaml > "${resource}.yaml"
+  oc delete -f "${resource}.yaml"
+  oc apply -f "${resource}.yaml"
+done
+popd || exit
 
 echo "Restore group for registry users"
 oc delete pods -n user-management -l name=keycloak-operator
