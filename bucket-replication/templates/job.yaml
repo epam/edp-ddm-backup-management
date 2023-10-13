@@ -33,7 +33,7 @@ spec:
             - name: MAX_AGE
               value: {{ $.Values.registryBackup.obc.maxAge | quote }}
             - name: S3_ENDPOINT
-              value: {{- include "bucket-replication.minioEndpoint"  $ }}
+              value: {{ include "bucket-replication.minioEndpoint"  $ }}
           command: [ "/bin/sh" ]
           args:
             - '-c'
