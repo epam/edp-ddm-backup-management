@@ -5,15 +5,16 @@ edp_ns="$2"
 ttl="$3"
 backup_name="$4"
 resource_folder="/tmp/openshift-resources"
-declare -a openshift_registry_resources=("service" "gerrits" "jenkins" "codebases" "codebasebranches" "jenkinsauthorizationrolemapping" "postgrescluster")
+codebase_operator_registry_webhook_name="edp-codebase-operator-validating-webhook-configuration-${registry_name}"
+declare -a openshift_registry_resources=("service" "gerrits" "jenkins" "codebases" "codebasebranches" "jenkinsauthorizationrolemapping" "postgrescluster" "validatingwebhookconfiguration")
 
 access_key_aws=$(oc get secret/backup-credentials -n "${edp_ns}" -o jsonpath='{.data.backup-s3-like-storage-access-key-id}' | base64 -d)
 access_secret_key_aws=$(oc get secret/backup-credentials -n "${edp_ns}" -o jsonpath='{.data.backup-s3-like-storage-secret-access-key}' | base64 -d)
 minio_endpoint=$(oc get secret/backup-credentials -n "${edp_ns}" -o jsonpath='{.data.backup-s3-like-storage-url}' | base64 -d)
 rook_s3_endpoint=$(oc get cephobjectstore/mdtuddm -n openshift-storage -o=jsonpath='{.status.info.endpoint}')
-destination_bucket=$(oc get secret/backup-credentials -n "${edp_ns}" -o jsonpath='{.data.backup-s3-like-storage-location}' | base64 -d)
+destination_bucket="${registry_name}-backups"
 
-velero backup create "${backup_name}" --include-namespaces "${registry_name}" --ttl "${ttl}" --wait >/dev/null
+velero backup create "${backup_name}" --include-namespaces "${registry_name}" --storage-location "${registry_name}" --ttl "${ttl}" --wait >/dev/null
 
 mkdir -p ~/.config/rclone
 echo "Restore Openshift objects from bucket"
@@ -26,6 +27,7 @@ secret_access_key = ${access_secret_key_aws}
 endpoint = ${minio_endpoint}
 region = eu-central-1
 location_constraint = EU
+server_side_encryption = aws:kms
 acl = bucket-owner-full-control" >~/.config/rclone/rclone.conf
 
 rm -rf "${resource_folder}" && mkdir -p "${resource_folder}"
@@ -45,9 +47,13 @@ done
 for resource_kind in "${openshift_registry_resources[@]}"; do
   resource_folder="${resource_folder}/${resource_kind}"
   mkdir -p "${resource_folder}"
-  for name in $(oc get "${resource_kind}" -n "${registry_name}" --no-headers -o custom-columns="NAME:.metadata.name"); do
-    oc get "${resource_kind}/${name}" -n "${registry_name}" -o yaml >"${resource_folder}/${name}.yaml"
-  done
+  if [[ "${resource_kind}" == "validatingwebhookconfiguration" ]];then
+      oc get "${resource_kind}" "${codebase_operator_registry_webhook_name}" -o yaml > "${resource_folder}/codebase_operator_webhook.yaml"
+  else
+    for name in $(oc get "${resource_kind}" -n "${registry_name}" --no-headers -o custom-columns="NAME:.metadata.name"); do
+      oc get "${resource_kind}/${name}" -n "${registry_name}" -o yaml >"${resource_folder}/${name}.yaml"
+    done
+  fi
   resource_folder="/tmp/openshift-resources"
 done
 

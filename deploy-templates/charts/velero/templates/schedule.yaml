@@ -17,6 +17,7 @@ spec:
   schedule: {{ $data.schedule | squote }}
   template:
     csiSnapshotTimeout: 0s
+    storageLocation: {{ $.Values.configuration.centralComponentBackupBucket}}
     includedNamespaces:
       {{- if eq $component "monitoring" }}
       - {{ print "grafana-" $component | quote -}}

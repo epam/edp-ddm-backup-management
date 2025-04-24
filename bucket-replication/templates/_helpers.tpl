@@ -83,15 +83,15 @@ Create the name of backup-secret
 
 {{- define "bucket-replication.secretData" -}}
 {{- if and .Values.global.registryBackup.obc.bucketSecretAccessKey .Values.global.registryBackup.obc.bucketAccessKeyId }}
-{{- $customAccessKey := .Values.global.registryBackup.obc.bucketSecretAccessKey | b64enc }}
-{{- $customSecretAccessKey := .Values.global.registryBackup.obc.bucketAccessKeyId | b64enc }}
+{{- $customAccessKey := .Values.global.registryBackup.obc.bucketAccessKeyId | b64enc }}
+{{- $customSecretAccessKey := .Values.global.registryBackup.obc.bucketSecretAccessKey | b64enc }}
 {{ printf "%s: %s\n" "AWS_ACCESS_KEY_ID" $customAccessKey }}
 {{ printf "%s: %s\n" "AWS_SECRET_ACCESS_KEY" $customSecretAccessKey }}
 {{- else}}
-{{- $backupSecret := (lookup "v1" "Secret" .Values.configuration.defaultCredentialsSecretNamespace  .Values.configuration.defaultCredentialsSecretName) }}
+{{- $backupSecret := (lookup "v1" "Secret" .Values.configuration.registryName "s3-user-credentials") }}
 {{- $secretData := (get $backupSecret "data") }}
-{{- $accessKeyId := (get $secretData "backup-s3-like-storage-access-key-id") | quote | default dict }}
-{{- $secretAccessKey := (get $secretData "backup-s3-like-storage-secret-access-key") | quote | default dict }}
+{{- $accessKeyId := (get $secretData "username") | quote | default dict }}
+{{- $secretAccessKey := (get $secretData "password") | quote | default dict }}
 {{ printf "%s: %s\n" "AWS_ACCESS_KEY_ID" $accessKeyId }}
 {{ printf "%s: %s\n" "AWS_SECRET_ACCESS_KEY" $secretAccessKey }}
 {{- end }}
@@ -101,10 +101,7 @@ Create the name of backup-secret
 {{- if  .Values.global.registryBackup.obc.backupBucket }}
 {{- .Values.global.registryBackup.obc.backupBucket }}
 {{- else }}
-{{- $backupSecret := (lookup "v1" "Secret" .Values.configuration.defaultCredentialsSecretNamespace  .Values.configuration.defaultCredentialsSecretName) }}
-{{- $secretData := (get $backupSecret "data") }}
-{{- $backupBucket := (get $secretData "backup-s3-like-storage-location") | default dict }}
-{{- $backupBucket | b64dec | indent 3 }}
+{{- printf "%s-%s" .Values.configuration.registryName "backups" }}
 {{- end }}
 {{- end }}
 
@@ -118,3 +115,18 @@ Create the name of backup-secret
 {{- $minioEndpoint | b64dec | indent 3 }}
 {{- end }}
 {{- end }}
+
+{{- define "bucket-replication.cronjobSuspend" -}}
+{{- $key := get (dict "file-ceph-bucket" "file" "datafactory-ceph-bucket" "datafactory") .name -}}
+{{- $global := (default dict .root.Values.global) -}}
+{{- $externalS3 := (get $global "externalS3" | default dict) -}}
+{{- $buckets := (get $externalS3 "buckets" | default dict) -}}
+{{- $rb := (get $global "registryBackup" | default dict) -}}
+{{- $obc := (get $rb "obc" | default dict) -}}
+{{- $suspend := (get $obc "suspend" | default false) -}}
+{{- if and $key (hasKey $buckets $key) -}}
+true
+{{- else -}}
+{{- $suspend -}}
+{{- end -}}
+{{- end -}}

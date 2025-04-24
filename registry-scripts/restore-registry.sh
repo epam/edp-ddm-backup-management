@@ -23,6 +23,14 @@ declare -a animals=("statefulset,app.kubernetes.io/name=vault,vault"
   "deployment,app.kubernetes.io/instance=geo-server,geo-server"
 )
 
+function get_backup_bucket() {
+  local namespace backup_storage_location_name backup_bucket_name;
+  namespace="velero";
+  backup_storage_location_name=$(oc get backups -n "${namespace}" "${backup_name}" -o jsonpath='{.spec.storageLocation}')
+  backup_bucket_name=$(oc get BackupStorageLocation -n "${namespace}" "${backup_storage_location_name}" -o jsonpath='{.spec.objectStorage.bucket}')
+  echo "${backup_bucket_name}"
+}
+
 restoreObjectFromMinio() {
   for resource in "${1}"/*.yaml; do
     oc apply -f "${resource}"
@@ -42,6 +50,14 @@ restore_crunchy_ownerref() {
       oc -n "${registry_name}" patch "${resourceKind}/${1}-${postfix}" -p '{"metadata": {"ownerReferences":[{"apiVersion": "postgres-operator.crunchydata.com/v1beta1","kind": "PostgresCluster","name": "'${1}'","uid": "'${uid}'","controller": true,"blockOwnerDeletion": true}]}}'
     done
   done
+}
+
+restore_validation_webhook_configuration() {
+  local codebase_operator_registry_webhook_name folder_name
+  folder_name="validatingwebhookconfiguration"
+  codebase_operator_registry_webhook_name="edp-codebase-operator-validating-webhook-configuration-${registry_name}"
+  oc delete validatingwebhookconfiguration "${codebase_operator_registry_webhook_name}" --ignore-not-found=true
+  oc apply -f "${resource_folder}/${folder_name}/codebase_operator_webhook.yaml"
 }
 
 restore() {
@@ -97,7 +113,7 @@ echo "Getting Minio credentials"
 access_key_aws=$(oc get secret/backup-credentials -n "${edp_ns}" -o jsonpath='{.data.backup-s3-like-storage-access-key-id}' | base64 -d)
 access_secret_key_aws=$(oc get secret/backup-credentials -n "${edp_ns}" -o jsonpath='{.data.backup-s3-like-storage-secret-access-key}' | base64 -d)
 minio_endpoint=$(oc get secret/backup-credentials -n "${edp_ns}" -o jsonpath='{.data.backup-s3-like-storage-url}' | base64 -d)
-minio_bucket_name=$(oc get secret/backup-credentials -n "${edp_ns}" -o jsonpath='{.data.backup-s3-like-storage-location}' | base64 -d)
+minio_bucket_name=$(get_backup_bucket)
 
 mkdir -p ~/.config/rclone
 echo "Restore Openshift objects from bucket"
@@ -109,12 +125,15 @@ access_key_id = ${access_key_aws}
 secret_access_key = ${access_secret_key_aws}
 endpoint = ${minio_endpoint}
 region = eu-central-1
+server_side_encryption = aws:kms
 location_constraint = EU
 acl = bucket-owner-full-control" >~/.config/rclone/rclone.conf
 
 rclone delete "minio:${minio_bucket_name}/postgres-backup/${registry_name}"
 rm -rf "${resource_folder}" && mkdir -p "${resource_folder}"
 rclone copy "minio:${minio_bucket_name}/openshift-backups/backups/${backup_name}/openshift-resources" "${resource_folder}"
+
+restore_validation_webhook_configuration
 
 for folder in "${openshift_resources[@]}"; do
   if [ "${folder}" != "service" ]; then

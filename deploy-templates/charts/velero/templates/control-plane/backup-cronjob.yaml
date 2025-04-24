@@ -20,6 +20,9 @@ spec:
             - mountPath: /tmp/backup/{{ .Values.cronJob.backupScriptName }}
               subPath: {{ .Values.cronJob.backupScriptName }}
               name: backup
+          envFrom:
+            - secretRef:
+                name: central-components-aws-credentials
         volumes:
         - name: backup
           configMap:

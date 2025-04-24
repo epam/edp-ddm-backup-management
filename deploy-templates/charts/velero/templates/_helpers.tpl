@@ -127,3 +127,9 @@ For examples:
 {{- $minorVersion := .Capabilities.KubeVersion.Minor | regexFind "[0-9]+" -}}
 {{- printf "%s.%s" .Capabilities.KubeVersion.Major $minorVersion -}}
 {{- end -}}
+
+{{- define "imageRegistry" -}}
+{{- $reg := default "docker.io" .Values.global.imageRegistry -}}
+{{- $reg = trimSuffix "/" $reg -}}
+{{- $reg -}}
+{{- end -}}

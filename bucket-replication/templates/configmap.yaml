@@ -8,69 +8,97 @@ metadata:
 data:
   bucket-replication.sh: |
     #!/usr/bin/env bash
+    set -e
+    LOG_LEVEL="${LOG_LEVEL:-info}"
+    if [[ $LOG_LEVEL == "debug" ]];then
+      set -x
+    fi
 
-    rook_s3_endpoint=$(oc get cephobjectstore/mdtuddm -n openshift-storage -o=jsonpath='{.status.info.endpoint}')
-    bucket=$(oc get objectbucketclaim/"${OBJECT_BUCKET_CLAIM}" -n ${REGISTRY_NAMESPACE} -o=jsonpath="{.spec.bucketName}")
-    access_key_rook=$(oc get secret/"${OBJECT_BUCKET_CLAIM}" -n "${REGISTRY_NAMESPACE}" -o jsonpath='{.data.AWS_ACCESS_KEY_ID}' | base64 -d)
-    access_secret_key_rook=$(oc get secret/"${OBJECT_BUCKET_CLAIM}" -n "${REGISTRY_NAMESPACE}" -o jsonpath='{.data.AWS_SECRET_ACCESS_KEY}' | base64 -d)
+    RCLONE_CONFIG_FOLDER="/tmp/rclone/config"
+    RCLONE_CONFIG="/tmp/rclone/rclone.conf"
+    WORKDIR="/tmp/replication"
+    readonly RCLONE_CONFIG RCLONE_CONFIG_FOLDER WORKDIR
 
-    mkdir -p ~/.config/rclone
+    log() {
+      local level="$1"
+      shift
+      local msg="$*"
+      local timestamp
+      timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
+      echo "[$timestamp] [$level] $msg"
+    }
+
+
+    replication() {
+      local source destination rclone_command src_file dst_file diff_file files_to_transfer replication_args postfix diff_file_hash
+      source="${1}"
+      destination="${2}"
+      src_file="src"
+      dst_file="dst"
+      postfix="-hash"
+      diff_file_hash="need-to-transfer-with${postfix}"
+      diff_file=${diff_file_hash%"$postfix"}
+      rclone_command="rclone --config ${RCLONE_CONFIG} "
+      replication_args="{{ .Values.global.registryBackup.obc.replicationArgs | join " " }}"
+      log info "Initial arguments for rclone replication command - ${replication_args}"
+{{- if .Values.global.registryBackup.obc.extraArgs }}
+      additional_args="{{ .Values.global.registryBackup.obc.extraArgs | join " " }}"
+      log info "Additional arguments for rclone - ${additional_args}"
+      rclone_command="${rclone_command} ${additional_args}"
+{{- end }}
+
+      pushd "${WORKDIR}" || exit
+        log info "Looking for files in ${source}"
+        ${rclone_command} lsf --files-only --format "ph" -R "${source}" | sort > "${src_file}"
+        if [ -s "${src_file}" ];then
+          log info "Files exists in ${source}. Looking for files in ${destination}"
+          ${rclone_command} lsf --files-only --format "ph" -R "${destination}" | sort > "${dst_file}"
+          #find files that are not in both remotes
+          log info "Calculating difference between ${source} ${destination}"
+          comm -23 "${src_file}" "${dst_file}" > "${diff_file_hash}"
+          cut -d ';' -f1 "${diff_file_hash}" > "${diff_file}"
+          if [ -s "${diff_file}" ];then
+          split -l 10000 "${diff_file}"
+            files_to_transfer=$(cat "${diff_file}" | wc -l)
+            log info "Diff calculated. Files to transfer - ${files_to_transfer}"
+            for file in x* ;do
+              ${rclone_command} copy ${replication_args} \
+                                     --files-from "${file}" \
+                                     "${source}" \
+                                     "${destination}"
+              done
+           log info "Replication from ${source} to ${destination} completed."
+          else
+             log info "No diff between ${source} and ${destination}. Skip replication for ${RGW_BUCKET_NAME}."
+          fi
+        else
+          log info "Files in ${source} not found. Skip replication for ${RGW_BUCKET_NAME}."
+        fi
+      popd
+    }
+
+    mkdir -p "${RCLONE_CONFIG_FOLDER}" "${WORKDIR}"
+
     echo "
-    ["${BACKUP_BUCKET}"]
+    [s3]
     type = s3
     provider = Other
     endpoint = ${S3_ENDPOINT}
     env_auth = true
-    region = eu-central-1
-    acl = private
-    bucket_acl = private
+    {{- if .Values.global.registryBackup.obc.sse }}
+    server_side_encryption = aws:kms
+    {{- end }}
+    region = ${S3_REGION}
 
-    [rook]
+    [rgw]
     type = s3
     provider = Ceph
     env_auth = false
-    access_key_id = ${access_key_rook}
-    secret_access_key = ${access_secret_key_rook}
-    endpoint = ${rook_s3_endpoint}
-    acl = bucket-owner-full-control
-    bucket_acl = authenticated-read" > ~/.config/rclone/rclone.conf
-    # append only bucket - data bucket strategy (by label) - copy / other sync
-
+    access_key_id = ${RGW_ACCESS_KEY_ID}
+    secret_access_key = ${RGW_SECRET_ACCESS_KEY}
+    endpoint = ${RGW_ENDPOINT}" > "${RCLONE_CONFIG}"
 {{- if eq .Values.registryBackup.obc.action "replication" }}
-    rclone_command="rclone copy -P --no-traverse --metadata"
-
-    if [[ -z $(rclone lsd ${BACKUP_BUCKET}:${BACKUP_BUCKET}/obc-backups/${REGISTRY_NAMESPACE} | grep ${OBJECT_BUCKET_CLAIM}) ]]; then
-       echo "[INFO] Destination folder empty, copy full bucket to destination"
-    else
-       echo "[INFO] Destination folder exists, copy bucket data for ${MAX_AGE}"
-       rclone_command="${rclone_command} --max-age ${MAX_AGE}"
-    fi
-
-    function replication() {
-      set +o pipefail
-      $rclone_command rook:${bucket} ${BACKUP_BUCKET}:/${BACKUP_BUCKET}/obc-backups/${REGISTRY_NAMESPACE}/${OBJECT_BUCKET_CLAIM}/ -v  > /tmp/rcloneout 2> /tmp/rcloneerror
-      return 0
-    }
-
-    function error_response(){
-        return 1
-    }
-
-    replication
-
-    if grep -q 'failed to open source object: NoSuchKey' /tmp/rcloneerror;then
-      echo "[WARN] False positive error with NoSuchKey. Ignore"
-    elif  [ -s /tmp/rcloneout ];then
-      echo "[INFO] Replication completed with no errors."
-    else
-      if [ ! -z ${DEBUG} ]; then
-        echo "[ERROR][DEBUG]Debug flag set to true"
-        cat /tmp/rcloneerror
-      else
-        echo "[ERROR]Please run job in debug mode. Add to enviromnet variable DEBUG with value "true" to return logs to stout"
-      fi
-      error_response
-    fi
+    replication "rgw:${RGW_BUCKET_NAME}" "s3:${BACKUP_BUCKET}/obc-backups/${REGISTRY_NAMESPACE}/${OBJECT_BUCKET_CLAIM}"
 {{- else }}
-    rclone -M -v sync ${BACKUP_BUCKET}:/${BACKUP_BUCKET}/obc-backups/${REGISTRY_NAMESPACE}/${OBJECT_BUCKET_CLAIM} rook:${bucket}
+    replication "s3:${BACKUP_BUCKET}/obc-backups/${REGISTRY_NAMESPACE}/${OBJECT_BUCKET_CLAIM}" "rgw:${RGW_BUCKET_NAME}"
 {{- end }}

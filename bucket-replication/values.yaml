@@ -2,6 +2,9 @@
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
 
+image:
+  proxyRegistry: "docker-registry.control-plane-nexus.svc:5004"
+  publicImage: "bitnami/rclone:1.70.3"
 configuration:
   defaultCredentialsSecretName: "backup-credentials"
   defaultCredentialsSecretNamespace: "control-plane"
@@ -11,11 +14,14 @@ configuration:
 global:
   registryBackup:
     obc:
-      type: default
-      # http endpoint
-      # path to Vault secret
-      # backupBucket
-      suspend: false
+      replicationArgs:
+       - --transfers=32
+       - --checkers=64
+       - --metadata
+       - --no-traverse
+       - --progress
+       - --s3-no-check-bucket
+      sse: true
 imagePullSecrets: []
 
 serviceAccount:

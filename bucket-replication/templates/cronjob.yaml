@@ -1,16 +1,31 @@
 {{- if eq .Values.registryBackup.obc.action "replication" -}}
 {{ range $index, $bucket := (lookup "objectbucket.io/v1alpha1" "ObjectBucketClaim" $.Values.configuration.registryName "").items }}
+{{- $backupSecret := (lookup "v1" "Secret" $.Values.configuration.registryName $bucket.metadata.name ) }}
+{{- $secretData := (get $backupSecret "data") }}
+{{- $accessKeyId := (get $secretData "AWS_ACCESS_KEY_ID") | quote | default dict }}
+{{- $secretAccessKey := (get $secretData "AWS_SECRET_ACCESS_KEY") | quote | default dict }}
+{{- $obc := (lookup "objectbucket.io/v1alpha1" "ObjectBucketClaim" $.Values.configuration.registryName $bucket.metadata.name) }}
+{{- $rgw_bucketName := $obc.spec.bucketName }}
+{{- $secretName := printf "%s-%s-%s" $.Values.configuration.registryName $bucket.metadata.name $.Values.registryBackup.obc.action | trunc 63 | trimSuffix "-" }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $secretName }}
+data:
+  RGW_ACCESS_KEY_ID: {{ $accessKeyId }}
+  RGW_SECRET_ACCESS_KEY: {{ $secretAccessKey }}
 ---
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: {{ include "bucket-replication.fullname" $ }}-{{ $bucket.metadata.name}}
+  name: {{ include "bucket-replication.fullname" $ }}-{{ $bucket.metadata.name }}
   namespace: {{ $.Release.Namespace }}
   labels:
     {{- include "bucket-replication.labels" $ | nindent 4 }}
     obc-bucket-name: {{ $bucket.metadata.name }}
 spec:
-  suspend: {{ $.Values.global.registryBackup.obc.suspend }}
+  suspend: {{ include "bucket-replication.cronjobSuspend" (dict "root" $ "name" $bucket.metadata.name) }}
   concurrencyPolicy: Forbid
   startingDeadlineSeconds: 30
   schedule: {{ $.Values.global.registryBackup.obc.cronExpression | default "30 19 * * *" | quote }}
@@ -24,34 +39,15 @@ spec:
             obc-bucket-name: {{ $bucket.metadata.name }}
         spec:
           nodeSelector:
-            node: {{ $.Values.configuration.registryName }}
-          tolerations:
-            - key: node/{{ $.Values.configuration.registryName }}
-              operator: Exists
-        {{- if or (eq $bucket.metadata.name "datafactory-ceph-bucket") (eq $bucket.metadata.name "lowcode-form-data-storage") (eq $bucket.metadata.name "file-ceph-bucket")}}
-          affinity:
-            nodeAffinity:
-              requiredDuringSchedulingIgnoredDuringExecution:
-                nodeSelectorTerms:
-                  - matchExpressions:
-                      - key: node
-                        operator: In
-                        values:
-                          - {{ $.Values.configuration.registryName }}
-            podAntiAffinity:
-              requiredDuringSchedulingIgnoredDuringExecution:
-                - labelSelector:
-                    matchExpressions:
-                      - key: app.kubernetes.io/name
-                        operator: In
-                        values:
-                          - {{ include "bucket-replication.name" $ }}
-                  topologyKey: kubernetes.io/hostname
+          {{- with $.Values.global.registryBackup.obc.nodeSelector}}
+            {{- toYaml . | nindent 12 }}
+          {{- else }}
+           node: {{ $.Values.configuration.registryName }}
           {{- end }}
           serviceAccountName: {{ include "bucket-replication.serviceAccountName" $ }}
           containers:
             - name: {{ include "bucket-replication.fullname" $ }}
-              image: {{ include "bucket-replication.image" $ }}
+              image: {{ $.Values.image.proxyRegistry }}/{{ $.Values.image.publicImage }}
               env:
                 - name: BACKUP_BUCKET
                   value: {{ include "bucket-replication.backupBucket" $ }}
@@ -60,27 +56,82 @@ spec:
                 - name: OBJECT_BUCKET_CLAIM
                   value: {{ $bucket.metadata.name }}
                 - name: MAX_AGE
-                  value: {{ $.Values.registryBackup.obc.maxAge | quote }}
+                  value: {{ $.Values.registryBackup.obc.maxAge | default 1 | quote }}
                 - name: S3_ENDPOINT
                   value: {{ include "bucket-replication.minioEndpoint" $ }}
-              command: [ "/bin/sh" ]
+                - name: S3_REGION
+                  value: {{ $.Values.global.registryBackup.obc.s3region | default "eu-central-1" }}
+                - name: RGW_ENDPOINT
+                  value: http://rook-ceph-rgw-mdtuddm.openshift-storage.svc.cluster.local
+                - name: RGW_BUCKET_NAME
+                  value: {{ $rgw_bucketName }}
+                - name: LOG_LEVEL
+                  value: {{ $.Values.global.registryBackup.obc.logLevel | default "info" }}
+              command: [ "/bin/bash" ]
               args:
                 - '-c'
                 - /opt/scripts/bucket-replication.sh
               volumeMounts:
                 - name: {{ include "bucket-replication.fullname" $ }}
                   mountPath: /opt/scripts
+                {{- with $.Values.global.registryBackup.obc.extraVolumeMounts }}
+                {{- range . }}
+                - name: {{ .name }}
+                  mountPath: {{ .mountPath }}
+                  {{- if .subPath }}
+                  subPath: {{ .subPath }}
+                  {{- end }}
+                  {{- if .readOnly }}
+                  readOnly: {{ .readOnly }}
+                  {{- end }}
+                {{- end }}
+                {{- end }}
               envFrom:
                 - secretRef:
                     name: {{ include "bucket-replication.secretName" $ }}
+                - secretRef:
+                    name: {{ $secretName }}
           restartPolicy: Never
           tolerations:
-          - key: node/{{ $.Values.configuration.registryName }}
-            operator: Exists
+          {{- with $.Values.global.registryBackup.obc.tolerations }}
+             {{- toYaml . | nindent 12 }}
+          {{- else }}
+           - key: node/{{ $.Values.configuration.registryName }}
+             operator: Exists
+          {{- end }}
           volumes:
             - name: {{ include "bucket-replication.fullname" $ }}
               configMap:
                 name: {{ include "bucket-replication.fullname" $ }}
                 defaultMode: 0755
+            {{- with $.Values.global.registryBackup.obc.extraVolumes }}
+            {{- range . }}
+            - name: {{ .name }}
+              {{- if .configMap }}
+              configMap:
+                name: {{ .configMap.name }}
+                {{- if .configMap.defaultMode }}
+                defaultMode: {{ .configMap.defaultMode }}
+                {{- end }}
+              {{- end }}
+              {{- if .secret }}
+              secret:
+                secretName: {{ .secret.secretName }}
+                {{- if .secret.defaultMode }}
+                defaultMode: {{ .secret.defaultMode }}
+                {{- end }}
+              {{- end }}
+              {{- if .hostPath }}
+              hostPath:
+                path: {{ .hostPath.path }}
+                {{- if .hostPath.type }}
+                type: {{ .hostPath.type }}
+                {{- end }}
+              {{- end }}
+              {{- if .emptyDir }}
+              emptyDir: {}
+              {{- end }}
+            {{- end }}
+            {{- end }}
 {{- end }}
 {{- end }}

@@ -4,7 +4,13 @@
 {{ $minioEndpoint := "" | regexReplaceAll "'" ( exec "oc" (list "get" "secret" "-n" "control-plane" "backup-credentials" "--no-headers" "-o" "jsonpath='{.data.backup-s3-like-storage-url}'")) | b64dec }}
 {{ $minioAwsSecretAccessKey := "" | regexReplaceAll "'" ( exec "oc" (list "get" "secret" "-n" "control-plane" "backup-credentials" "--no-headers" "-o" "jsonpath='{.data.backup-s3-like-storage-secret-access-key}'")) | b64dec }}
 {{ $jenkinsAgentImage := "" | regexReplaceAll "'" ("" | regexReplaceAll  "\n" (exec "oc" (list "get" "pods" "--selector" "jenkins/label=gitops" "-o" "jsonpath='{.items[0].spec.containers[*].image}'"))) }}
+{{ $centralComponentsBucketName:= "central-components" }}
+{{ $kesServerIp := "" | regexReplaceAll "'" ( exec "oc" (list "get" "endpointslice" "-n" "control-plane" "platform-minio" "-o" "jsonpath='{.endpoints[0].addresses[0]}'")) }}
+{{ $kesApiKey  := "" | regexReplaceAll "'" ( exec "oc" (list "get" "secret" "-n" "control-plane" "platform-minio-key-api-key" "-o" "jsonpath='{.data.apiKey}'")) | b64dec }}
+{{ $bucketEncryptionKey := printf "%s-%s" "minio" $centralComponentsBucketName }}
 
+global:
+  imageRegistry: '{{ env "dockerProxyRegistry" }}'
 
 velero:
   resources:
@@ -52,6 +58,7 @@ velero:
   features: EnableCSI
 
   configuration:
+    centralComponentBackupBucket: {{ $centralComponentsBucketName }}
     job:
       image: {{ $jenkinsAgentImage }}
     provider: aws
@@ -82,3 +89,69 @@ velero:
         aws_access_key_id={{ "" | regexReplaceAll "'" ( exec "oc" (list "get" "secret" "-n" "kube-system" "aws-creds" "--no-headers" "-o" "jsonpath='{.data.aws_access_key_id}'")) | b64dec }}
         aws_secret_access_key={{ "" | regexReplaceAll "'" ( exec "oc" (list "get" "secret" "-n" "kube-system" "aws-creds" "--no-headers" "-o" "jsonpath='{.data.aws_secret_access_key}'")) | b64dec }}
         {{ end }}
+
+  extraObjects:
+  - apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: create-minio-bucket
+      annotations:
+        "helm.sh/hook": pre-install,pre-upgrade
+        "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+    spec:
+      template:
+        spec:
+          initContainers:
+          - name: create-bucket-encryption-key
+            image: minio/kes
+            env:
+            - name: KES_SERVER
+              value: https://{{ $kesServerIp }}:7373
+            - name: KES_API_KEY
+              value: {{ $kesApiKey }}
+            command:
+            - /bin/sh
+            - -c
+            - |
+              ./kes key create {{ $bucketEncryptionKey }} -k || echo "Encryption key already exists."
+          containers:
+          - name: create-bucket
+            image: minio/mc
+            env:
+            - name: MC_CONFIG_DIR
+              value: /tmp/.mc
+            command:
+            - /bin/sh
+            - -c
+            - |
+              mc alias set default {{ $minioEndpoint }} {{ $minioAwsAccessKeyId }} {{ $minioAwsSecretAccessKey }}
+              if ! mc ls default/{{ $centralComponentsBucketName }} > /dev/null 2>&1; then
+                mc mb default/{{ $centralComponentsBucketName }}
+                mc encrypt set sse-kms {{ $bucketEncryptionKey }} default/{{ $centralComponentsBucketName }}
+              else
+                echo "Bucket default/{{ $centralComponentsBucketName }} already exists. Skipping creation."
+              fi
+          restartPolicy: Never
+      backoffLimit: 4
+  - apiVersion: velero.io/v1
+    kind: BackupStorageLocation
+    metadata:
+      annotations:
+        helm.sh/hook: 'post-install,post-upgrade,post-rollback'
+        helm.sh/hook-delete-policy: before-hook-creation
+      name: {{ $centralComponentsBucketName }}
+    spec:
+      accessMode: ReadWrite
+      config:
+        publicUrl: {{ $minioEndpoint }}
+        region: eu-central-1
+        s3ForcePathStyle: 'true'
+        s3Url: {{ $minioEndpoint }}
+      credential:
+        key: cloud
+        name: {{ $centralComponentsBucketName }}-backups
+      default: false
+      objectStorage:
+        bucket: {{ $centralComponentsBucketName }}
+        prefix: openshift-backups
+      provider: aws

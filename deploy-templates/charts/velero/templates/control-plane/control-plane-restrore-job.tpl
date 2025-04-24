@@ -21,6 +21,9 @@ spec:
         - mountPath: /tmp/backup/{{ .Values.restoreJob.restoreScriptName }}
           subPath: {{ .Values.restoreJob.restoreScriptName }}
           name: backup
+      envFrom:
+        - secretRef:
+            name: central-components-aws-credentials
     volumes:
     - name: backup
       configMap:
